@@ -214,3 +214,37 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 @media (min-width: 700px) {
   .view { padding-left: 24px; padding-right: 24px; }
 }
+
+/* steps & command groups */
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: st; display: flex; flex-direction: column; gap: 10px; }
+.steps li { counter-increment: st; }
+.step-desc { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); margin-bottom: 5px; }
+.step-desc::before { content: counter(st); flex: none; width: 20px; height: 20px; border-radius: 10px; background: var(--surface-3); color: var(--text); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.prompt { color: var(--muted); user-select: none; -webkit-user-select: none; }
+.group-note { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin: -2px 0 8px; }
+.gitem .gline { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.gitem code { color: var(--code); }
+.badge.side-remote { color: var(--os-windows-fg); background: var(--os-windows-bg); }
+.badge.side-local { color: var(--os-debian-fg); background: var(--os-debian-bg); }
+.badge.side-both { color: var(--text-2); background: var(--surface-3); }
+.gitem code .ph { color: var(--ph-ink); }
+
+/* tighter command items: 명령과 설명이 한 덩어리로 보이게 */
+.gitem { gap: 2px; padding: 10px 14px 11px; }
+.gitem + .gitem { border-top: 1px solid var(--border); }
+.gitem > span { padding-left: 2px; }
+.opts .gitem:nth-child(even) { background: var(--surface); }
+.opts .gitem { background: var(--surface); }
+
+/* 비교형 (서버 쪽 / 내 PC 쪽) */
+.cmp { border-radius: 10px; border: 1px solid var(--border); overflow: hidden; background: var(--surface); }
+.cmp-head, .cmp-cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cmp-head { padding: 9px 14px; background: var(--surface-3); font-size: 12px; font-weight: 700; }
+.cmp-head span:first-child { color: var(--os-windows-fg); }
+.cmp-head span:last-child { color: var(--os-debian-fg); }
+.cmp-row { padding: 10px 14px 12px; }
+.cmp-row + .cmp-row { border-top: 1px solid var(--border); }
+.cmp-desc { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.cmp-cells code { font-family: var(--mono); font-size: 13px; color: var(--code); padding: 6px 8px; border-radius: 6px; background: var(--code-bg); overflow-wrap: anywhere; }
+.cmp-cells code .ph { color: var(--ph-ink); }
+.cmp-note { font-size: 12px; color: var(--muted); margin-top: 6px; }

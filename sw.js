@@ -1,5 +1,5 @@
 /* 명령어 핸드북 서비스 워커: 앱 화면 파일을 저장해 오프라인에서도 열리게 함 */
-var VERSION = 'ch-shell-v1';
+var VERSION = 'ch-shell-v3';
 var SHELL = [
   './',
   './index.html',

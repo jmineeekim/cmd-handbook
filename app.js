@@ -255,9 +255,12 @@
         else if (c._search.indexOf(t) > -1) s = 25;
         else {
           var o = c.options.filter(function (o) { return (o.flag + ' ' + o.desc).toLowerCase().indexOf(t) > -1; })[0];
+          var gi = null;
+          (c.commandGroups || []).some(function (g) { return g.items.some(function (it) { if (((it.cmd || '') + ' ' + (it.left || '') + ' ' + (it.right || '') + ' ' + it.desc).toLowerCase().indexOf(t) > -1) { gi = it; return true; } }); });
           if (o) { s = 12; hit = hit || phPlain(o.flag) + '  ' + o.desc; }
+          else if (gi) { s = 14; hit = hit || phPlain(gi.cmd || (gi.left + ' / ' + gi.right)) + '  ' + gi.desc; }
           else {
-            var e = c.examples.filter(function (e) { return (e.title + ' ' + e.command).toLowerCase().indexOf(t) > -1; })[0];
+            var e = c.examples.filter(function (e) { return (e.title + ' ' + (e.command || '') + ' ' + (e.steps || []).map(function (s) { return s.cmd + ' ' + s.desc; }).join(' ')).toLowerCase().indexOf(t) > -1; })[0];
             if (e) { s = 8; hit = hit || e.title; }
           }
         }
@@ -314,13 +317,34 @@
     var envInst = settings.env !== 'all' && inst[settings.env];
     if (envInst && !envInst.preinstalled) b.push('<span class="badge neutral">별도 설치</span>');
 
-    var hasPh = c.examples.some(function (e) { PH.lastIndex = 0; return PH.test(e.command); });
+    var hasPh = c.examples.some(function (e) { return /\{\{/.test(e.command || '') || (e.steps || []).some(function (s) { return /\{\{/.test(s.cmd); }); });
     var ex = c.examples.map(function (e, i) {
       var plats = e.platforms && e.platforms.length < c.platforms.length ? e.platforms.map(function (p) { return '<span class="badge ' + p + '">' + esc(OS[p].label) + '</span>'; }).join('') : '';
-      return '<div class="ex"><div class="ex-title">' + esc(e.title) + plats + '</div>' +
-        '<div class="code"><pre>' + phHtml(e.command) + '</pre><button class="copy" data-act="copy" data-i="' + i + '" aria-label="명령어 복사">' + icon('copy') + '</button></div>' +
+      var body = e.steps ? '<ol class="steps">' + e.steps.map(function (s, j) {
+          return '<li><span class="step-desc">' + esc(s.desc) + '</span><div class="code"><pre>' + (s.prompt ? '<span class="prompt">' + esc(s.prompt) + ' </span>' : '') + phHtml(s.cmd) + '</pre>' +
+            '<button class="copy" data-act="copy" data-i="' + i + '" data-s="' + j + '" aria-label="명령어 복사">' + icon('copy') + '</button></div></li>';
+        }).join('') + '</ol>'
+        : '<div class="code"><pre>' + phHtml(e.command) + '</pre><button class="copy" data-act="copy" data-i="' + i + '" aria-label="명령어 복사">' + icon('copy') + '</button></div>';
+      return '<div class="ex"><div class="ex-title">' + esc(e.title) + plats + '</div>' + body +
         (e.output ? '<div class="code out" style="margin-top:6px"><pre>' + esc(e.output) + '</pre></div>' : '') +
         (e.note ? '<p class="ex-note">↳ ' + esc(e.note) + '</p>' : '') + '</div>';
+    }).join('');
+
+    var GT = { interactive: '안에서 쓰는 명령', subcommand: '서브 명령', keys: '단축키', directive: '설정 항목', action: '자주 하는 작업' };
+    var SIDE = { remote: ['서버 쪽', 'side-remote'], local: ['내 PC 쪽', 'side-local'], both: ['공통', 'side-both'], download: ['⬇ 서버→내 PC', 'side-remote'], upload: ['⬆ 내 PC→서버', 'side-local'] };
+    var groups = (c.commandGroups || []).map(function (g, gi) {
+      var label = g.type === 'interactive' && g.prompt ? g.prompt + ' ' + GT[g.type] : GT[g.type];
+      return '<section class="section"><div class="section-head"><h2>' + esc(g.title) + '</h2><span class="hint">' + esc(label) + '</span></div>' +
+        (g.note ? '<p class="group-note">' + esc(g.note) + '</p>' : '') +
+        (g.columns ? '<div class="cmp"><div class="cmp-head"><span>' + esc(g.columns[0]) + '</span><span>' + esc(g.columns[1]) + '</span></div>' +
+          g.items.map(function (it) {
+            return '<div class="cmp-row"><div class="cmp-desc">' + esc(it.desc) + '</div><div class="cmp-cells"><code class="c-l">' + phHtml(it.left) + '</code><code class="c-r">' + phHtml(it.right) + '</code></div>' +
+              (it.note ? '<div class="cmp-note">' + esc(it.note) + '</div>' : '') + '</div>';
+          }).join('') + '</div></section>' :
+        '<div class="opts">' + g.items.map(function (it, ii) {
+          var side = it.side ? '<span class="badge ' + SIDE[it.side][1] + '">' + SIDE[it.side][0] + '</span>' : '';
+          return '<div class="opt gitem"><div class="gline"><code>' + phHtml(it.cmd) + '</code>' + side + '</div><span>' + esc(it.desc) + (it.note ? ' · ' + esc(it.note) : '') + '</span></div>';
+        }).join('') + '</div></section>');
     }).join('');
 
     var opts = c.options.length ? '<section class="section"><div class="section-head"><h2>주요 옵션</h2></div><div class="opts">' +
@@ -357,7 +381,7 @@
       '<div class="d-badges">' + b.join('') + '</div>' +
       '<p class="d-desc">' + esc(c.description) + '</p>' +
       (c.aliases && c.aliases.length ? '<p class="d-aliases">다른 이름: ' + c.aliases.map(function (a) { return '<code>' + esc(a) + '</code>'; }).join(', ') + '</p>' : '') +
-      '<section class="section"><div class="section-head"><h2>실무 예시</h2>' +
+      groups + '<section class="section"><div class="section-head"><h2>실무 예시</h2>' +
       (hasPh ? '<span class="ph-hint"><span class="ph">값</span> 은 바꿔 쓸 부분</span>' : '') + '</div>' + ex + '</section>' +
       opts + cautions + notesHtml + instHtml + sameHtml + relHtml +
       (c.help ? '<p class="help">도움말: <code>' + esc(c.help) + '</code></p>' : '');
@@ -514,7 +538,8 @@
       case 'copy':
         var cmd = DB.byId[current.arg];
         var ex = cmd && cmd.examples[+el.getAttribute('data-i')];
-        if (ex) copyText(phPlain(ex.command), /\{\{/.test(ex.command));
+        var raw = ex && (el.hasAttribute('data-s') ? ex.steps[+el.getAttribute('data-s')].cmd : ex.command);
+        if (raw) copyText(phPlain(raw), /\{\{/.test(raw));
         break;
       case 'theme':
         settings.theme = v; save('settings', settings);
