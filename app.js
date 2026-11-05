@@ -13,6 +13,9 @@
     linux: { label: 'Linux 공통' },
     rhel: { label: 'RHEL·Rocky' },
     debian: { label: 'Ubuntu·Debian' },
+    aix: { label: 'AIX' },
+    hpux: { label: 'HP-UX' },
+    solaris: { label: 'Solaris' },
     windows: { label: 'Windows' }
   };
   var FILTERS = [
@@ -98,7 +101,8 @@
       .then(function (r) { if (!r.ok) throw new Error('version'); return r.json(); })
       .then(function (v) {
         lastCheck = new Date().toISOString(); save('lastCheck', lastCheck);
-        if (DB && v.dataVersion === DB.dataVersion) return { updated: false };
+        // 원격 버전이 지금 데이터보다 새로울 때만 교체 (YYYY.MM.DD.HHMM 형식이라 문자열 비교 가능)
+        if (DB && v.dataVersion <= DB.dataVersion) return { updated: false };
         return fetch(REMOTE_BUNDLE + '?v=' + encodeURIComponent(v.dataVersion), { cache: 'no-store' })
           .then(function (r) { if (!r.ok) throw new Error('bundle'); return r.arrayBuffer(); })
           .then(function (buf) {
@@ -145,10 +149,24 @@
     if (p.indexOf('rhel') > -1 && p.indexOf('debian') > -1) return 'linux';
     return p[0];
   }
+  var SHORT_LBL = { rhel: 'RHEL', debian: 'Ubuntu', aix: 'AIX', hpux: 'HP-UX', solaris: 'Solaris', windows: 'Windows' };
+  function osLabel(c) {
+    var p = c.platforms, has = function (x) { return p.indexOf(x) > -1; };
+    if (p.length === 1) return { cls: p[0], text: (OS[p[0]] && OS[p[0]].label) || p[0] };
+    var lin = has('rhel') && has('debian'), uni = has('aix') && has('hpux') && has('solaris');
+    var parts = [];
+    if (lin && uni) parts.push('Unix·Linux');
+    else {
+      if (lin) parts.push('Linux'); else ['rhel', 'debian'].forEach(function (x) { if (has(x)) parts.push(SHORT_LBL[x]); });
+      if (uni) parts.push('Unix'); else ['aix', 'hpux', 'solaris'].forEach(function (x) { if (has(x)) parts.push(SHORT_LBL[x]); });
+    }
+    if (has('windows')) parts.push('Windows');
+    var text = parts.length === 1 && (parts[0] === 'Linux' || parts[0] === 'Unix' || parts[0] === 'Unix·Linux') ? parts[0] + ' 공통' : parts.join('·');
+    return { cls: 'linux', text: text };
+  }
   function osBadge(c) {
-    var g = group(c);
-    if (g === 'linux' && c.platforms.indexOf('windows') > -1) return '<span class="badge linux">Linux·Windows</span>';
-    return '<span class="badge ' + g + '">' + esc(OS[g].label) + '</span>';
+    var o = osLabel(c);
+    return '<span class="badge ' + o.cls + '">' + esc(o.text) + '</span>';
   }
   function visible(c, f) { return f === 'all' || c.platforms.indexOf(f) > -1; }
   function sortCmds(a, b) {
@@ -217,10 +235,15 @@
   }
   // 작업(task)에서 해당 OS의 대표 명령어: 명령어 > 파일·GUI, 중요도 순
   var KIND_ORDER = { command: 0, file: 1, gui: 2 };
-  function taskCmds(taskId, f) {
-    return (DB.byTask[taskId] || []).filter(function (c) { return visible(c, f); }).sort(function (a, b) {
-      return (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || (LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]) || a.name.localeCompare(b.name);
-    });
+  // 어떤 OS에서는 같은 작업을 다른 기능 분류의 명령으로 하는 경우가 있어 대체 기능을 둠
+  var TASK_ALT = { 'network.ports': ['network.legacy'], 'service.logs': ['service.hw-errors'], 'system.memory': ['system.perf-stats', 'disk.swap'] };
+  function taskCmds(taskId, f, noAlt) {
+    var sorter = function (a, b) { return (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || (LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]) || a.name.localeCompare(b.name); };
+    var list = (DB.byTask[taskId] || []).filter(function (c) { return visible(c, f); }).sort(sorter);
+    if (!list.length && !noAlt && f !== 'all') {
+      (TASK_ALT[taskId] || []).some(function (alt) { list = (DB.byTask[alt] || []).filter(function (c) { return visible(c, f); }).sort(sorter); return list.length; });
+    }
+    return list;
   }
   var CAT_ICON = {
     files: 'M3 7h6l2 2h10v10H3z', content: 'M6 3h9l4 4v14H6zM14 3v5h5', text: 'M10 17a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM21 21l-6-6',
@@ -304,15 +327,21 @@
     var mine = taskCmds(id, f);
     if (!mine.length) return head + '<div class="empty">' + esc(envLabel(f)) + ' 에서 이 작업을 하는 명령어가 아직 없어요</div><h2 class="group-title">다른 OS에서는</h2><div class="list">' + otherRows(f) + '</div>';
     var h = mine[0];
-    var quick = h.examples.slice(0, 3).map(function (e, i) {
-      var raw = e.command || (e.steps && e.steps[0].cmd) || '';
-      return '<div class="ex"><div class="ex-title">' + esc(e.title) + '</div><div class="code"><pre>' + phHtml(e.command || e.steps.map(function (s) { return s.cmd; }).join('\n')) + '</pre>' +
-        '<button class="copy" data-act="copy" data-c="' + esc(h.id) + '" data-i="' + i + '" aria-label="명령어 복사">' + icon('copy') + '</button></div></div>';
-    }).join('');
+    var quick = h.examples.map(function (e, i) { return { e: e, i: i }; })
+      .filter(function (x) { return !x.e.platforms || x.e.platforms.indexOf(f) > -1; }).slice(0, 3).map(function (x) {
+        var e = x.e, i = x.i;
+        var body = e.steps ? '<ol class="steps">' + e.steps.map(function (s, j) {
+            return '<li><span class="step-desc">' + esc(s.desc) + '</span><div class="code"><pre>' + (s.prompt ? '<span class="prompt">' + esc(s.prompt) + ' </span>' : '') + phHtml(s.cmd) + '</pre>' +
+              '<button class="copy" data-act="copy" data-c="' + esc(h.id) + '" data-i="' + i + '" data-s="' + j + '" aria-label="명령어 복사">' + icon('copy') + '</button></div></li>';
+          }).join('') + '</ol>'
+          : '<div class="code"><pre>' + phHtml(e.command) + '</pre><button class="copy" data-act="copy" data-c="' + esc(h.id) + '" data-i="' + i + '" aria-label="명령어 복사">' + icon('copy') + '</button></div>';
+        return '<div class="ex"><div class="ex-title">' + esc(e.title) + (e.version ? '<span class="badge neutral">' + esc(e.version) + '</span>' : '') + '</div>' + body + '</div>';
+      }).join('');
+    var heroNote = h.platformNotes && h.platformNotes[f] ? '<span class="hero-note">' + esc(h.platformNotes[f]) + '</span>' : '';
     var more = mine.slice(1);
     return head +
       '<a class="hero" href="#/cmd/' + encodeURIComponent(h.id) + '"><span class="hero-top"><span class="hero-name">' + esc(h.name) + '</span><span class="badge ' + f + '">' + esc(envLabel(f)) + '</span></span>' +
-      '<span class="hero-desc">' + esc(h.summary) + '</span><span class="hero-link">상세 사용법 보기 ›</span></a>' +
+      '<span class="hero-desc">' + esc(h.summary) + '</span>' + heroNote + '<span class="hero-link">상세 사용법 보기 ›</span></a>' +
       '<section class="section"><div class="section-head"><h2>바로 쓰는 형태</h2></div>' + quick + '</section>' +
       (more.length ? '<section class="section"><div class="section-head"><h2>' + esc(envLabel(f)) + ' 의 다른 명령</h2></div><div class="list">' + more.map(function (c) { return cmdRow(c); }).join('') + '</div></section>' : '') +
       '<section class="section"><div class="section-head"><h2>다른 OS에서는</h2></div><div class="list">' + otherRows(f) + '</div></section>';
@@ -394,21 +423,28 @@
     if (c.risk === 'destructive') b.push('<span class="badge danger">⚠ 위험</span>');
     else if (c.risk === 'caution') b.push('<span class="badge warn">주의</span>');
     var inst = c.install || {};
+    Object.keys(c.versions || {}).forEach(function (k) { b.push('<span class="badge neutral">' + esc((SHORT_LBL[k] || k) + ' ' + c.versions[k]) + '</span>'); });
     var envInst = settings.env !== 'all' && inst[settings.env];
     if (envInst && !envInst.preinstalled) b.push('<span class="badge neutral">별도 설치</span>');
 
     var hasPh = c.examples.some(function (e) { return /\{\{/.test(e.command || '') || (e.steps || []).some(function (s) { return /\{\{/.test(s.cmd); }); });
-    var ex = c.examples.map(function (e, i) {
+    var env = settings.env, envOn = env !== 'all' && c.platforms.indexOf(env) > -1;
+    var applies = function (e) { return !envOn || !e.platforms || e.platforms.indexOf(env) > -1; };
+    var exHtml = function (e, i) {
       var plats = e.platforms && e.platforms.length < c.platforms.length ? e.platforms.map(function (p) { return '<span class="badge ' + p + '">' + esc(OS[p].label) + '</span>'; }).join('') : '';
       var body = e.steps ? '<ol class="steps">' + e.steps.map(function (s, j) {
           return '<li><span class="step-desc">' + esc(s.desc) + '</span><div class="code"><pre>' + (s.prompt ? '<span class="prompt">' + esc(s.prompt) + ' </span>' : '') + phHtml(s.cmd) + '</pre>' +
             '<button class="copy" data-act="copy" data-i="' + i + '" data-s="' + j + '" aria-label="명령어 복사">' + icon('copy') + '</button></div></li>';
         }).join('') + '</ol>'
         : '<div class="code"><pre>' + phHtml(e.command) + '</pre><button class="copy" data-act="copy" data-i="' + i + '" aria-label="명령어 복사">' + icon('copy') + '</button></div>';
-      return '<div class="ex"><div class="ex-title">' + esc(e.title) + plats + '</div>' + body +
+      return '<div class="ex"><div class="ex-title">' + esc(e.title) + plats + (e.version ? '<span class="badge neutral">' + esc(e.version) + '</span>' : '') + '</div>' + body +
         (e.output ? '<div class="code out" style="margin-top:6px"><pre>' + esc(e.output) + '</pre></div>' : '') +
         (e.note ? '<p class="ex-note">↳ ' + esc(e.note) + '</p>' : '') + '</div>';
-    }).join('');
+    };
+    var exMine = [], exOther = [];
+    c.examples.forEach(function (e, i) { (applies(e) ? exMine : exOther).push(exHtml(e, i)); });
+    var ex = exMine.join('') + (exOther.length ? '<details class="more-ex"><summary>다른 OS 예시 ' + exOther.length + '개 더 보기</summary>' + exOther.join('') + '</details>' : '');
+    var envNote = envOn && c.platformNotes && c.platformNotes[env] ? '<div class="envnote"><b>' + esc(envLabel(env)) + ' 에서는</b><span>' + esc(c.platformNotes[env]) + '</span></div>' : '';
 
     var GT = { interactive: '안에서 쓰는 명령', subcommand: '서브 명령', keys: '단축키', directive: '설정 항목', action: '자주 하는 작업' };
     var SIDE = { remote: ['서버 쪽', 'side-remote'], local: ['내 PC 쪽', 'side-local'], both: ['공통', 'side-both'], download: ['⬇ 서버→내 PC', 'side-remote'], upload: ['⬆ 내 PC→서버', 'side-local'] };
@@ -423,7 +459,8 @@
           }).join('') + '</div></section>' :
         '<div class="opts">' + g.items.map(function (it, ii) {
           var side = it.side ? '<span class="badge ' + SIDE[it.side][1] + '">' + SIDE[it.side][0] + '</span>' : '';
-          return '<div class="opt gitem"><div class="gline"><code>' + phHtml(it.cmd) + '</code>' + side + '</div><span>' + esc(it.desc) + (it.note ? ' · ' + esc(it.note) : '') + '</span></div>';
+          var tags = (it.platforms || []).map(function (p) { return '<span class="badge ' + p + '">' + esc(SHORT_LBL[p] || p) + '</span>'; }).join('') + (it.version ? '<span class="badge neutral">' + esc(it.version) + '</span>' : '');
+          return '<div class="opt gitem"><div class="gline"><code>' + phHtml(it.cmd) + '</code><span class="gtags">' + tags + side + '</span></div><span>' + esc(it.desc) + (it.note ? ' · ' + esc(it.note) : '') + '</span></div>';
         }).join('') + '</div></section>');
     }).join('');
 
@@ -460,14 +497,21 @@
       '<h1 class="d-name">' + esc(c.name) + '</h1>' +
       '<div class="d-badges">' + b.join('') + '</div>' +
       '<p class="d-desc">' + esc(c.description) + '</p>' +
+      envNote +
       '<a class="task-link" href="#/task/' + encodeURIComponent(c.task) + '">' + esc(task.name) + ' · OS별 명령 비교 ›</a>' +
       (c.aliases && c.aliases.length ? '<p class="d-aliases">다른 이름: ' + c.aliases.map(function (a) { return '<code>' + esc(a) + '</code>'; }).join(', ') + '</p>' : '') +
       groups + '<section class="section"><div class="section-head"><h2>실무 예시</h2>' +
       (hasPh ? '<span class="ph-hint"><span class="ph">값</span> 은 바꿔 쓸 부분</span>' : '') + '</div>' + ex + '</section>' +
       opts + cautions + notesHtml + instHtml + sameHtml + relHtml +
-      (c.help ? '<p class="help">도움말: <code>' + esc(c.help) + '</code></p>' : '');
+      (c.help ? '<p class="help">도움말: <code>' + esc(c.help) + '</code></p>' : '') +
+      '<a class="suggest" target="_blank" rel="noopener" href="' + suggestUrl(c) + '">틀린 내용이 있나요? 수정 제안하기 ›</a>';
   }
 
+  function suggestUrl(c) {
+    var title = '[수정 제안] ' + c.name + ' (' + c.id + ')';
+    var body = '명령어: ' + c.name + '\nID: ' + c.id + '\n데이터 버전: ' + DB.dataVersion + '\n대상 OS·버전: \n\n잘못된 내용:\n\n올바른 내용:\n';
+    return 'https://github.com/jmineeekim/cmd-handbook-data/issues/new?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body);
+  }
   function viewFavorites() {
     var list = favorites.map(function (id) { return DB.byId[id]; }).filter(Boolean);
     var rec = recents.map(function (id) { return DB.byId[id]; }).filter(Boolean).slice(0, 15);

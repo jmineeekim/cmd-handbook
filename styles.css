@@ -298,3 +298,13 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .badge.aix { color: #C9A0FF; background: #2A1F3D; }
 .badge.hpux { color: #F0A6CA; background: #3A1F2E; }
 .badge.solaris { color: #F5D76E; background: #38321A; }
+.gtags { display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; flex: none; max-width: 55%; }
+.suggest { display: block; margin-top: 18px; padding: 14px; border-radius: 10px; border: 1px dashed var(--border); text-align: center; font-size: 13px; color: var(--muted); }
+.suggest:active { background: var(--surface-3); }
+.envnote { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); border-left-width: 1px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; line-height: 1.6; color: var(--text-2); }
+.envnote b { color: var(--accent); font-size: 13px; }
+.hero-note { font-size: 13px; color: var(--muted); line-height: 1.55; padding-top: 8px; border-top: 1px solid var(--border); }
+.more-ex { margin-top: 14px; }
+.more-ex summary { cursor: pointer; padding: 12px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; color: var(--muted); list-style: none; }
+.more-ex summary::-webkit-details-marker { display: none; }
+.more-ex[open] summary { margin-bottom: 4px; }
