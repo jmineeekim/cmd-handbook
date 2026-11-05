@@ -47,6 +47,7 @@
       dataVersion: bundle.dataVersion,
       generatedAt: bundle.generatedAt,
       categories: bundle.categories,
+      platformsMeta: bundle.platforms,
       commands: bundle.commands,
       byId: {}, byTask: {}, catById: {}, taskById: {}
     };
@@ -171,11 +172,6 @@
     t.textContent = msg; t.classList.add('show');
     clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('show'); }, 1800);
   }
-  function chips(cur) {
-    return '<div class="chips" role="group" aria-label="OS 필터">' + FILTERS.map(function (f) {
-      return '<button class="chip" data-act="env" data-v="' + f.id + '" aria-pressed="' + (cur === f.id) + '">' + esc(f.label) + '</button>';
-    }).join('') + '</div>';
-  }
   function topBar(title, sub, right) {
     return '<header class="top"><button class="icon-btn" data-act="back" aria-label="뒤로">' + icon('back') + '</button>' +
       '<div style="flex:1;min-width:0"><h1>' + esc(title) + '</h1>' + (sub ? '<div class="sub">' + esc(sub) + '</div>' : '') + '</div>' + (right || '') + '</header>';
@@ -194,48 +190,132 @@
     return out;
   }
 
+  /* ---------- OS 목록 (데이터에 명령어가 있는 플랫폼만) ---------- */
+  var SHORT = { rhel: 'RHEL', debian: 'Ubuntu', aix: 'AIX', hpux: 'HP-UX', solaris: 'Solaris', windows: 'Windows' };
+  var PLAT_ORDER = ['rhel', 'debian', 'aix', 'hpux', 'solaris', 'windows'];
+  function platforms() {
+    if (DB._plats) return DB._plats;
+    var seen = {};
+    DB.commands.forEach(function (c) { c.platforms.forEach(function (p) { seen[p] = 1; }); });
+    var meta = {};
+    ((DB.platformsMeta || {}).platforms || []).forEach(function (p) { meta[p.id] = p; if (!OS[p.id]) OS[p.id] = { label: p.label }; });
+    DB._plats = PLAT_ORDER.concat(Object.keys(seen).filter(function (k) { return PLAT_ORDER.indexOf(k) < 0; }))
+      .filter(function (k) { return seen[k]; })
+      .map(function (k) { return { id: k, short: SHORT[k] || (meta[k] && meta[k].label) || k, label: (meta[k] && meta[k].label) || (OS[k] && OS[k].label) || k }; });
+    return DB._plats;
+  }
+  function chips(cur) {
+    var list = platforms().map(function (p) { return { id: p.id, label: p.short }; }).concat([{ id: 'all', label: '전체 비교' }]);
+    return '<div class="osgrid" role="group" aria-label="작업 OS 선택">' + list.map(function (f) {
+      return '<button class="oschip" data-act="env" data-v="' + f.id + '" aria-pressed="' + (cur === f.id) + '">' + esc(f.label) + '</button>';
+    }).join('') + '</div>';
+  }
+  function envLabel(f) {
+    if (f === 'all') return '전체 OS';
+    var p = platforms().filter(function (x) { return x.id === f; })[0];
+    return p ? p.label : f;
+  }
+  // 작업(task)에서 해당 OS의 대표 명령어: 명령어 > 파일·GUI, 중요도 순
+  var KIND_ORDER = { command: 0, file: 1, gui: 2 };
+  function taskCmds(taskId, f) {
+    return (DB.byTask[taskId] || []).filter(function (c) { return visible(c, f); }).sort(function (a, b) {
+      return (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || (LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]) || a.name.localeCompare(b.name);
+    });
+  }
+  var CAT_ICON = {
+    files: 'M3 7h6l2 2h10v10H3z', content: 'M6 3h9l4 4v14H6zM14 3v5h5', text: 'M10 17a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM21 21l-6-6',
+    users: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0', process: 'M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4',
+    system: 'M3 4h18v12H3zM8 20h8M12 16v4', service: 'M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1', network: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3a14 14 0 0 1 0 18',
+    remote: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4', archive: 'M3 4h18v4H3zM5 8v12h14V8M10 12h4', package: 'M21 8 12 3 3 8l9 5zM3 8v8l9 5 9-5V8',
+    disk: 'M4 5h16v14H4zM4 15h16M8 18h.01', security: 'M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z', time: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2', shell: 'M4 17l6-5-6-5M12 19h8'
+  };
+  var FEATURED = ['system.disk-usage', 'network.ports', 'service.manage', 'service.logs', 'disk.extend', 'remote.transfer', 'process.list', 'system.memory', 'network.firewall', 'network.ping'];
+
   /* ---------- views ---------- */
   function viewHome() {
     var f = settings.env;
-    var favs = favorites.map(function (id) { return DB.byId[id]; }).filter(Boolean).slice(0, 8);
-    var recs = recents.map(function (id) { return DB.byId[id]; }).filter(Boolean).slice(0, 8);
-    var quick = '';
-    if (favs.length || recs.length) {
-      quick = '<section class="section"><div class="section-head"><h2>즐겨찾기 · 최근 본</h2></div><div class="pills">' +
-        favs.map(function (c) { return '<a class="pill" href="#/cmd/' + encodeURIComponent(c.id) + '">★ ' + esc(c.name) + '</a>'; }).join('') +
-        recs.filter(function (c) { return favorites.indexOf(c.id) < 0; }).slice(0, 6).map(function (c) {
-          return '<a class="pill" href="#/cmd/' + encodeURIComponent(c.id) + '">' + esc(c.name) + '</a>';
-        }).join('') + '</div></section>';
-    }
+    var favs = favorites.map(function (id) { return DB.byId[id]; }).filter(Boolean);
+    var recs = recents.map(function (id) { return DB.byId[id]; }).filter(function (c) { return c && favorites.indexOf(c.id) < 0; });
+    var strip = favs.map(function (c) { return '<a class="pill" href="#/cmd/' + encodeURIComponent(c.id) + '">★ ' + esc(c.name) + '</a>'; })
+      .concat(recs.slice(0, 8).map(function (c) { return '<a class="pill" href="#/cmd/' + encodeURIComponent(c.id) + '">' + esc(c.name) + '</a>'; })).join('');
+    var tasks = FEATURED.filter(function (t) { return DB.taskById[t]; }).map(function (tid) {
+      var list = taskCmds(tid, f);
+      if (f !== 'all' && !list.length) return '';
+      return '<a class="tcard" href="#/task/' + tid + '"><b>' + esc(DB.taskById[tid].name) + '</b><span>' + esc(f === 'all' ? 'OS별 비교' : list[0].name) + '</span></a>';
+    }).join('');
     var cats = DB.categories.map(function (cat) {
       var n = DB.commands.filter(function (c) { return c.category === cat.id && visible(c, f); }).length;
-      if (!n) return '';
-      return '<a class="cat" href="#/cat/' + cat.id + '"><span class="body"><span class="title"><b>' + esc(cat.name) + '</b><span>' + n + '개</span></span>' +
-        '<span class="reps">' + esc(repsFor(cat, f).join(' · ')) + '</span></span><span class="chev">' + icon('chev') + '</span></a>';
+      return '<a class="ctile' + (n ? '' : ' dim') + '" href="#/cat/' + cat.id + '"><span class="ctop"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="' + (CAT_ICON[cat.id] || CAT_ICON.files) + '"/></svg><i>' + n + '개</i></span><b>' + esc(cat.name) + '</b></a>';
     }).join('');
-    var hint = { all: '모든 OS', rhel: 'RHEL·Rocky 기준', debian: 'Ubuntu·Debian 기준', windows: 'Windows 기준' }[f];
     return '<header class="home-head"><div><div class="brand">$ cmd-handbook</div><h1>명령어 핸드북</h1></div>' +
       '<a class="icon-btn boxed" href="#/settings" aria-label="설정">' + icon('gear') + '</a></header>' +
-      '<a class="searchbox" href="#/search">' + icon('search') + '<span>명령어, 기능, 옵션 검색 (예: 포트, 용량)</span></a>' +
-      chips(f) + quick +
-      '<section class="section"><div class="section-head"><h2>카테고리</h2><span class="hint">' + esc(hint) + '</span></div>' + cats + '</section>' +
+      '<a class="searchbox" href="#/search">' + icon('search') + '<span>명령어·작업 검색 (예: 디스크 용량, 포트)</span></a>' +
+      '<p class="os-caption">지금 작업 중인 OS</p>' + chips(f) +
+      '<section class="section"><div class="section-head"><h2>자주 찾는 작업</h2><span class="hint">' + esc(f === 'all' ? '누르면 OS별 비교' : envLabel(f) + ' 기준') + '</span></div>' +
+      '<div class="hscroll">' + tasks + '</div></section>' +
+      (strip ? '<section class="section"><div class="section-head"><h2>즐겨찾기 · 최근</h2></div><div class="hscroll">' + strip + '</div></section>' : '') +
+      '<section class="section"><div class="section-head"><h2>카테고리</h2></div><div class="cgrid">' + cats + '</div></section>' +
       '<p class="note" style="text-align:center;margin-top:20px">명령어 ' + DB.commands.length + '개 · 데이터 ' + esc(DB.dataVersion) + '</p>';
   }
 
   function viewCategory(id) {
     var cat = DB.catById[id];
     if (!cat) return viewNotFound();
-    var f = settings.env;
-    var groups = cat.tasks.map(function (t) {
-      var list = (DB.byTask[t.id] || []).filter(function (c) { return visible(c, f); }).sort(sortCmds);
-      if (!list.length) return '';
-      return '<h2 class="group-title">' + esc(t.name) + '</h2><div class="list">' + list.map(function (c) { return cmdRow(c); }).join('') + '</div>';
+    var f = settings.env, shown = 0;
+    var rows = cat.tasks.map(function (t) {
+      var body;
+      if (f === 'all') {
+        var lines = platforms().map(function (p) {
+          var l = taskCmds(t.id, p.id);
+          return l.length ? '<span class="tl"><i>' + esc(p.short) + '</i><code>' + esc(l.slice(0, 2).map(function (c) { return c.name; }).join(' · ')) + '</code></span>' : '';
+        }).join('');
+        if (!lines) return '';
+        body = '<span class="tlines">' + lines + '</span>';
+      } else {
+        var l = taskCmds(t.id, f);
+        if (!l.length) return '';
+        body = '<code class="tcmd">' + esc(l.slice(0, 3).map(function (c) { return c.name; }).join(' · ')) + '</code>';
+      }
+      shown++;
+      return '<a class="row trow" href="#/task/' + encodeURIComponent(t.id) + '"><span class="body"><b class="tname">' + esc(t.name) + '</b>' + body + '</span><span class="chev">' + icon('chev') + '</span></a>';
     }).join('');
-    var n = DB.commands.filter(function (c) { return c.category === id && visible(c, f); }).length;
-    return topBar(cat.name, '명령어 ' + n + '개', '<a class="icon-btn" href="#/search" aria-label="검색">' + icon('search') + '</a>') +
+    return topBar(cat.name, '기능 ' + shown + '개 · ' + (f === 'all' ? 'OS별 비교' : envLabel(f) + ' 기준'), '<a class="icon-btn" href="#/search" aria-label="검색">' + icon('search') + '</a>') +
       chips(f) +
-      '<div class="legend"><span><i class="dot basic"></i>기본</span><span><i class="dot frequent"></i>자주</span><span><i class="dot critical"></i>드물지만 중요</span></div>' +
-      (groups || '<div class="empty">이 OS에 해당하는 명령어가 없어요</div>');
+      (rows ? '<div class="list" style="margin-top:14px">' + rows + '</div><p class="note">기능을 누르면 OS별 명령을 비교하는 작업 화면으로 이동해요.</p>'
+        : '<div class="empty">' + esc(envLabel(f)) + ' 에 해당하는 명령어가 아직 없어요</div>');
+  }
+
+  function viewTask(id) {
+    var t = DB.taskById[id];
+    if (!t) return viewNotFound();
+    var cat = DB.catById[t.cat], f = settings.env;
+    var head = topBar(t.name, cat.name + ' › 작업') + chips(f);
+    var otherRows = function (exclude) {
+      return platforms().filter(function (p) { return p.id !== exclude; }).map(function (p) {
+        var l = taskCmds(id, p.id);
+        if (!l.length) return '<div class="row prow none"><span class="badge ' + p.id + ' pbadge">' + esc(p.short) + '</span><span class="body"><span class="desc">해당 명령어가 아직 없어요</span></span></div>';
+        return l.map(function (c, i) {
+          return '<a class="row prow" href="#/cmd/' + encodeURIComponent(c.id) + '">' + (i ? '<span class="pbadge"></span>' : '<span class="badge ' + p.id + ' pbadge">' + esc(p.short) + '</span>') +
+            '<span class="body"><span class="name">' + esc(c.name) + '</span><span class="desc">' + esc(c.summary) + '</span></span><span class="chev">' + icon('chev') + '</span></a>';
+        }).join('');
+      }).join('');
+    };
+    if (f === 'all') return head + '<div class="list" style="margin-top:14px">' + otherRows(null) + '</div>';
+    var mine = taskCmds(id, f);
+    if (!mine.length) return head + '<div class="empty">' + esc(envLabel(f)) + ' 에서 이 작업을 하는 명령어가 아직 없어요</div><h2 class="group-title">다른 OS에서는</h2><div class="list">' + otherRows(f) + '</div>';
+    var h = mine[0];
+    var quick = h.examples.slice(0, 3).map(function (e, i) {
+      var raw = e.command || (e.steps && e.steps[0].cmd) || '';
+      return '<div class="ex"><div class="ex-title">' + esc(e.title) + '</div><div class="code"><pre>' + phHtml(e.command || e.steps.map(function (s) { return s.cmd; }).join('\n')) + '</pre>' +
+        '<button class="copy" data-act="copy" data-c="' + esc(h.id) + '" data-i="' + i + '" aria-label="명령어 복사">' + icon('copy') + '</button></div></div>';
+    }).join('');
+    var more = mine.slice(1);
+    return head +
+      '<a class="hero" href="#/cmd/' + encodeURIComponent(h.id) + '"><span class="hero-top"><span class="hero-name">' + esc(h.name) + '</span><span class="badge ' + f + '">' + esc(envLabel(f)) + '</span></span>' +
+      '<span class="hero-desc">' + esc(h.summary) + '</span><span class="hero-link">상세 사용법 보기 ›</span></a>' +
+      '<section class="section"><div class="section-head"><h2>바로 쓰는 형태</h2></div>' + quick + '</section>' +
+      (more.length ? '<section class="section"><div class="section-head"><h2>' + esc(envLabel(f)) + ' 의 다른 명령</h2></div><div class="list">' + more.map(function (c) { return cmdRow(c); }).join('') + '</div></section>' : '') +
+      '<section class="section"><div class="section-head"><h2>다른 OS에서는</h2></div><div class="list">' + otherRows(f) + '</div></section>';
   }
 
   function search(q, f) {
@@ -380,6 +460,7 @@
       '<h1 class="d-name">' + esc(c.name) + '</h1>' +
       '<div class="d-badges">' + b.join('') + '</div>' +
       '<p class="d-desc">' + esc(c.description) + '</p>' +
+      '<a class="task-link" href="#/task/' + encodeURIComponent(c.task) + '">' + esc(task.name) + ' · OS별 명령 비교 ›</a>' +
       (c.aliases && c.aliases.length ? '<p class="d-aliases">다른 이름: ' + c.aliases.map(function (a) { return '<code>' + esc(a) + '</code>'; }).join(', ') + '</p>' : '') +
       groups + '<section class="section"><div class="section-head"><h2>실무 예시</h2>' +
       (hasPh ? '<span class="ph-hint"><span class="ph">값</span> 은 바꿔 쓸 부분</span>' : '') + '</div>' + ex + '</section>' +
@@ -397,10 +478,7 @@
   }
 
   function viewSettings() {
-    var envs = [
-      { id: 'all', label: '전체 보기' }, { id: 'rhel', label: 'RHEL · Rocky' },
-      { id: 'debian', label: 'Ubuntu · Debian' }, { id: 'windows', label: 'Windows' }
-    ];
+    var envs = [{ id: 'all', label: '전체 비교' }].concat(platforms().map(function (p) { return { id: p.id, label: p.label }; }));
     var themes = [{ id: 'dark', label: '다크' }, { id: 'light', label: '라이트' }, { id: 'system', label: '시스템' }];
     var when = lastCheck ? new Date(lastCheck).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '확인 전';
     var standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -408,7 +486,7 @@
       '<section class="section"><div class="section-head"><h2>내 작업 환경</h2></div>' +
       '<div class="list" role="radiogroup" aria-label="기본 OS">' + envs.map(function (e) {
         return '<button class="setting-row radio-row" role="radio" aria-checked="' + (settings.env === e.id) + '" data-act="env" data-v="' + e.id + '"><span>' + esc(e.label) + '</span><span class="radio"></span></button>';
-      }).join('') + '</div><p class="note">홈·카테고리·검색에 기본으로 적용할 OS예요. 각 화면 위쪽 버튼으로도 바꿀 수 있어요.</p></section>' +
+      }).join('') + '</div><p class="note">홈·카테고리·작업·검색 화면 위쪽 OS 버튼과 같은 설정이에요. 마지막에 고른 OS를 기억해요.</p></section>' +
       '<section class="section"><div class="section-head"><h2>화면</h2></div><div class="list">' +
       '<div class="setting-row"><span>테마</span><span class="seg">' + themes.map(function (t) {
         return '<button data-act="theme" data-v="' + t.id + '" aria-pressed="' + (settings.theme === t.id) + '">' + t.label + '</button>';
@@ -455,6 +533,7 @@
     switch (r.name) {
       case 'cat': html = viewCategory(r.arg); break;
       case 'cmd': html = viewDetail(r.arg); break;
+      case 'task': html = viewTask(r.arg); break;
       case 'search': html = viewSearch(r.params.q || ''); break;
       case 'favorites': html = viewFavorites(); break;
       case 'settings': html = viewSettings(); break;
@@ -462,11 +541,11 @@
       default: html = viewNotFound();
     }
     view.innerHTML = html;
-    var tab = { home: 'home', cat: 'home', cmd: 'home', search: 'search', favorites: 'favorites', settings: 'settings' }[r.name];
+    var tab = { home: 'home', cat: 'home', cmd: 'home', task: 'home', search: 'search', favorites: 'favorites', settings: 'settings' }[r.name];
     Array.prototype.forEach.call(document.querySelectorAll('.tabbar a'), function (a) {
       if (a.getAttribute('data-tab') === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
-    document.title = ({ cmd: DB.byId[r.arg] ? DB.byId[r.arg].name + ' · ' : '', cat: DB.catById[r.arg] ? DB.catById[r.arg].name + ' · ' : '' }[r.name] || '') + '명령어 핸드북';
+    document.title = ({ cmd: DB.byId[r.arg] ? DB.byId[r.arg].name + ' · ' : '', cat: DB.catById[r.arg] ? DB.catById[r.arg].name + ' · ' : '', task: DB.taskById[r.arg] ? DB.taskById[r.arg].name + ' · ' : '' }[r.name] || '') + '명령어 핸드북';
     if (sameView || keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
     current = r;
     if (r.name === 'search') {
@@ -518,7 +597,7 @@
       case 'env':
         settings.env = v; save('settings', settings);
         if (current.name === 'search') {
-          Array.prototype.forEach.call(document.querySelectorAll('.chip[data-act="env"]'), function (c) { c.setAttribute('aria-pressed', c.getAttribute('data-v') === v); });
+          Array.prototype.forEach.call(document.querySelectorAll('[data-act="env"]'), function (c) { c.setAttribute('aria-pressed', c.getAttribute('data-v') === v); });
           var q = document.getElementById('q');
           document.getElementById('results').innerHTML = searchResults(q ? q.value : '');
         } else route(true);
@@ -536,7 +615,7 @@
         save('favorites', favorites); route(true);
         break;
       case 'copy':
-        var cmd = DB.byId[current.arg];
+        var cmd = DB.byId[el.getAttribute('data-c') || current.arg];
         var ex = cmd && cmd.examples[+el.getAttribute('data-i')];
         var raw = ex && (el.hasAttribute('data-s') ? ex.steps[+el.getAttribute('data-s')].cmd : ex.command);
         if (raw) copyText(phPlain(raw), /\{\{/.test(raw));

@@ -248,3 +248,53 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .cmp-cells code { font-family: var(--mono); font-size: 13px; color: var(--code); padding: 6px 8px; border-radius: 6px; background: var(--code-bg); overflow-wrap: anywhere; }
 .cmp-cells code .ph { color: var(--ph-ink); }
 .cmp-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* v2: OS 선택 격자 */
+.os-caption { font-size: 12px; color: var(--muted); margin: 14px 0 6px; }
+.osgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.os-caption + .osgrid { margin-top: 0; }
+.oschip { height: 40px; padding: 0 4px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oschip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+/* v2: 가로 스크롤 줄 */
+.hscroll { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-right: -16px; padding-right: 16px; }
+.hscroll::-webkit-scrollbar { display: none; }
+.hscroll .pill { flex: none; }
+.tcard { flex: none; display: flex; flex-direction: column; gap: 3px; min-width: 112px; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+.tcard b { font-size: 13px; font-weight: 600; }
+.tcard span { font-family: var(--mono); font-size: 12px; color: var(--code); white-space: nowrap; }
+.tcard:active { background: var(--surface-3); }
+
+/* v2: 카테고리 3열 격자 */
+.cgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ctile { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-height: 66px; padding: 0 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+.ctile:active { background: var(--surface-3); }
+.ctile.dim { opacity: .45; }
+.ctop { display: flex; align-items: center; gap: 7px; color: var(--accent); }
+.ctop svg { width: 16px; height: 16px; }
+.ctop i { font-style: normal; font-size: 11px; color: var(--muted); }
+.ctile b { font-size: 13px; font-weight: 500; line-height: 1.25; }
+
+/* v2: 카테고리 기능 목록 */
+.trow { align-items: center; }
+.tname { font-size: 14.5px; font-weight: 700; }
+.tcmd { font-family: var(--mono); font-size: 13px; color: var(--code); overflow-wrap: anywhere; }
+.tlines { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.tl { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; font-size: 12px; }
+.tl i { font-style: normal; color: var(--muted); }
+.tl code { font-family: var(--mono); color: var(--code); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* v2: 작업 화면 */
+.hero { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; padding: 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.hero-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hero-name { font-family: var(--mono); font-size: 22px; font-weight: 600; overflow-wrap: anywhere; }
+.hero-desc { font-size: 14px; color: var(--text-2); line-height: 1.55; }
+.hero-link { font-size: 13px; color: var(--accent); }
+.prow { align-items: flex-start; }
+.prow.none { opacity: .6; }
+.pbadge { flex: none; width: 64px; text-align: center; }
+.badge.pbadge { padding: 4px 0; }
+.task-link { display: inline-block; margin-top: 10px; font-size: 13px; color: var(--accent); }
+.badge.aix { color: #C9A0FF; background: #2A1F3D; }
+.badge.hpux { color: #F0A6CA; background: #3A1F2E; }
+.badge.solaris { color: #F5D76E; background: #38321A; }
